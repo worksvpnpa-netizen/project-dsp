@@ -1,0 +1,5 @@
+PyQt5
+scapy
+requests
+scikit-learn
+# ... keep other dependencies needed for device discovery and risk assessment 
