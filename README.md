@@ -1,9 +1,7 @@
 # IoT Risk Detect: FOSS IoT Security & Botnet Detection Desktop App
 
-**Author:** [flatmarstheory](https://github.com/flatmarstheory)  
-**Sponsor:** [Buy Me a Coffee](https://bmc.link/flatmarstheory)
+<img width="992" height="525" alt="Screenshot 2025-07-20 191034" src="https://github.com/user-attachments/assets/3b73c044-2ddf-482a-956d-8cb9adc91fa1" />
 
----
 
 ## 🚀 Project Vision
 IoT Risk Detect is a free and open-source (FOSS) desktop tool for real-time discovery, risk assessment, and botnet/anomaly detection of IoT devices on your local network. It empowers users, researchers, and defenders to:
@@ -26,11 +24,6 @@ IoT Risk Detect is a free and open-source (FOSS) desktop tool for real-time disc
 - **Export:** Save results (CSV) for compliance or research
 - **Modern GUI:** PyQt5, color-coded, status bar, responsive
 - **No database, no server, no web UI**
-
----
-
-## 🖼️ Screenshots
-> _Add screenshots here after first run!_
 
 ---
 
