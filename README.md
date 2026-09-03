@@ -45,6 +45,25 @@ IoT Risk Detect is a free and open-source (FOSS) desktop tool for real-time disc
    > _Run as administrator/root for full network scan capability._
 
 ### Docker
+
+#### Option A: Web UI (Browser Access - No X11 setup required)
+1. **Build the Web Docker image:**
+   ```sh
+   docker build -f Dockerfile.web -t iot-risk-detect-web .
+   ```
+2. **Run the container:**
+   ```sh
+   docker run --rm -it --net=host -p 6080:6080 iot-risk-detect-web
+   ```
+3. **Access in Web Browser:**
+   Open `http://localhost:6080/vnc.html` in your browser.
+
+*Or using Docker Compose:*
+```sh
+docker compose up --build
+```
+
+#### Option B: X11 Forwarding (Desktop Window)
 1. **Build the image:**
    ```sh
    docker build -t iot-risk-detect .

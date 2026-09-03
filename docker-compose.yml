@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  iot-risk-detect:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: iot-risk-detect-web
+    network_mode: host
+    ports:
+      - "6080:6080"
+    restart: unless-stopped

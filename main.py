@@ -15,9 +15,10 @@ except Exception as e:
     print(f'[Startup] Could not update manuf file: {e}')
     warnings.filterwarnings("ignore", message=".*cannot read manuf.*")
 # --- End fix ---
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QMessageBox, QLineEdit, QLabel, QHBoxLayout, QFileDialog, QDialog, QFormLayout, QStatusBar)
+from PyQt5.QtWidgets import (QApplication, QTabWidget, QMainWindow, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QMessageBox, QLineEdit, QLabel, QHBoxLayout, QFileDialog, QDialog, QFormLayout, QStatusBar)
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QColor, QFont, QBrush
+from src.ui.topology_view import NetworkTopologyWidget
 from src.core.device_discovery import DeviceDiscovery
 from scapy.all import sniff, IP, TCP, UDP
 from sklearn.ensemble import IsolationForest
@@ -32,11 +33,13 @@ def is_admin():
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
 
 if not is_admin():
-    # Relaunch as admin
-    import ctypes
-    ctypes.windll.shell32.ShellExecuteW(
-        None, "runas", sys.executable, " ".join(sys.argv), None, 1)
-    sys.exit()
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        sys.exit()
+    else:
+        print("[Warning] Running without root privileges. Network sniffing/ARP scan may require root/sudo.")
 
 def assess_device_risk(device):
     open_ports = [p['port'] for p in device.get('ports', [])]
@@ -256,6 +259,13 @@ class MainWindow(QMainWindow):
             item = self.table.horizontalHeaderItem(i)
             if item:
                 item.setFont(font)
+        
+        self.topology_widget = NetworkTopologyWidget()
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self.table, "📋 Device Table View")
+        self.tabs.addTab(self.topology_widget, "🌐 Network Topology Map")
+
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         top_layout = QHBoxLayout()
@@ -265,7 +275,7 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.export_button)
         layout = QVBoxLayout()
         layout.addLayout(top_layout)
-        layout.addWidget(self.table)
+        layout.addWidget(self.tabs)
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
@@ -365,6 +375,13 @@ class MainWindow(QMainWindow):
             ml_item.setToolTip(ml_reason)
             self.table.setItem(row, 6, ml_item)
         print(f"[GUI] Table update complete.")
+        # Update Network Topology Widget
+        for d in devices:
+            r_score, r_label, _ = assess_device_risk(d)
+            d['risk_label'] = r_label
+        gateway_ip = network.rsplit('.', 1)[0] + '.1' if '.' in network else '192.168.137.1'
+        self.topology_widget.set_data(devices, gateway_ip=gateway_ip)
+
         self.export_button.setEnabled(True if devices else False)
         self.status_bar.showMessage(f"Scan complete: {len(devices)} devices, {high_risk_count} high risk.")
         QMessageBox.information(self, "Scan Complete", f"Found {len(devices)} devices on {network}.")

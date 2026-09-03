@@ -44,11 +44,15 @@ class DeviceDiscovery:
             try:
                 vendor = self.lookup_mac_vendor(received.hwsrc)
                 ports = self._scan_ports(received.psrc)
+                vlan_id = f"VLAN {received.psrc.split('.')[2]}" if '.' in received.psrc else "VLAN 137"
+                ap_name = "Hotspot-AP" if "137" in received.psrc else "AP-01"
                 hosts.append({
                     'ip': received.psrc,
                     'mac': received.hwsrc,
                     'vendor': vendor,
-                    'ports': ports
+                    'ports': ports,
+                    'vlan': vlan_id,
+                    'ap_name': ap_name
                 })
                 print(f"[DeviceDiscovery] Found: IP={received.psrc}, MAC={received.hwsrc}, Vendor={vendor}, Ports={[p['port'] for p in ports]}")
             except Exception as e:
