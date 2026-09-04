@@ -241,15 +241,15 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1300, 650)
         self.network_label = QLabel("Network Range:")
         self.network_input = QLineEdit()
-        self.network_input.setText("192.168.1.0/24")
+        self.network_input.setText("192.168.137.0/24, 10.10.20.0/24")
         self.scan_button = QPushButton("Scan Network")
         self.scan_button.clicked.connect(self.scan_network)
         self.export_button = QPushButton("Export to CSV")
         self.export_button.clicked.connect(self.export_to_csv)
         self.export_button.setEnabled(False)
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["IP Address", "MAC Address", "Vendor", "Open Ports", "Risk", "Botnet Risk", "ML Anomaly Risk"])
+        self.table.setColumnCount(9)
+        self.table.setHorizontalHeaderLabels(["IP Address", "MAC Address", "Vendor", "VLAN", "Connected To", "Port / AP", "Risk", "Botnet Risk", "ML Anomaly Risk"])
         self.table.cellDoubleClicked.connect(self.show_device_details)
         # UI/UX: bold headers, alternating row colors
         header = self.table.horizontalHeader()
@@ -330,13 +330,17 @@ class MainWindow(QMainWindow):
                 for col in range(self.table.columnCount()):
                     self.table.setItem(row, col, QTableWidgetItem())
                     self.table.item(row, col).setBackground(QColor(245, 245, 245))
+            disc = device.get('discovered', {})
             self.table.setItem(row, 0, QTableWidgetItem(device.get('ip', '')))
             self.table.setItem(row, 1, QTableWidgetItem(device.get('mac', '')))
             self.table.setItem(row, 2, QTableWidgetItem(device.get('vendor', '')))
-            ports = ', '.join(str(p['port']) for p in device.get('ports', []))
-            self.table.setItem(row, 3, QTableWidgetItem(ports))
+            self.table.setItem(row, 3, QTableWidgetItem(str(disc.get('vlan', '10'))))
+            self.table.setItem(row, 4, QTableWidgetItem(str(disc.get('connected_to', 'SW-01'))))
+            self.table.setItem(row, 5, QTableWidgetItem(str(disc.get('port_or_ap', 'Port 1'))))
+            
             # Risk assessment
             risk_score, risk_label, risk_reason = assess_device_risk(device)
+            device['risk_label'] = risk_label
             risk_item = QTableWidgetItem(f"{risk_label} ({risk_score:.2f})")
             if risk_label == "High":
                 risk_item.setBackground(QColor(255, 102, 102))
@@ -347,7 +351,8 @@ class MainWindow(QMainWindow):
             else:
                 risk_item.setBackground(QColor(153, 255, 153))
             risk_item.setToolTip(risk_reason)
-            self.table.setItem(row, 4, risk_item)
+            self.table.setItem(row, 6, risk_item)
+            
             # Botnet risk
             b_score, b_label, b_reason = botnet_risks.get(device.get('ip'), (0.0, "Low", "Not analyzed"))
             botnet_item = QTableWidgetItem(f"{b_label} ({b_score:.2f})")
@@ -360,7 +365,8 @@ class MainWindow(QMainWindow):
             else:
                 botnet_item.setBackground(QColor(153, 255, 153))
             botnet_item.setToolTip(b_reason)
-            self.table.setItem(row, 5, botnet_item)
+            self.table.setItem(row, 7, botnet_item)
+            
             # ML anomaly risk
             ml_score, ml_label, ml_reason = ml_risks.get(device.get('ip'), (0.0, "Low", "Not analyzed"))
             ml_item = QTableWidgetItem(f"{ml_label} ({ml_score:.2f})")
@@ -373,7 +379,7 @@ class MainWindow(QMainWindow):
             else:
                 ml_item.setBackground(QColor(204, 255, 255))
             ml_item.setToolTip(ml_reason)
-            self.table.setItem(row, 6, ml_item)
+            self.table.setItem(row, 8, ml_item)
         print(f"[GUI] Table update complete.")
         # Update Network Topology Widget
         for d in devices:

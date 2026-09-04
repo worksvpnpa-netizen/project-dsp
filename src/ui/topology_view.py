@@ -1,6 +1,6 @@
 """
-Network Topology Visualization Module for IoT Risk Detection System.
-Renders rich node cards with icons, IP, Vendor, AP/VLAN metadata, and Risk badges.
+Multi-Tier Enterprise Network Topology Visualization Module.
+Renders Core Router -> Switches/APs -> Subnets/VLANs -> Rich Device Cards.
 """
 
 import math
@@ -9,7 +9,7 @@ from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import QPen, QBrush, QColor, QFont, QPainter
 
 class NetworkTopologyWidget(QGraphicsView):
-    """Interactive node graph rendering rich network topology card nodes."""
+    """Multi-tier hierarchical network topology view."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -20,128 +20,144 @@ class NetworkTopologyWidget(QGraphicsView):
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         
-        self.setBackgroundBrush(QBrush(QColor("#11111b")))
+        self.setBackgroundBrush(QBrush(QColor("#0f172a")))
         self.devices = []
-        self.gateway_ip = "192.168.137.1"
 
     def set_data(self, devices, gateway_ip=None):
-        """Populates and draws the rich card topology map."""
+        """Populates and renders the multi-tier topology hierarchy."""
         self.devices = devices
-        if gateway_ip:
-            self.gateway_ip = gateway_ip
         self.draw_topology()
 
-    def _get_device_type_info(self, vendor, ports):
-        v = (vendor or '').lower()
-        port_list = [p['port'] for p in ports] if isinstance(ports, list) else []
-        
-        if 554 in port_list or 'cam' in v or 'hikvision' in v or 'dahua' in v:
-            return "📷 IP CAMERA"
-        elif 'router' in v or 'gateway' in v or 'cisco' in v or 'tp-link' in v or 'netgear' in v:
-            return "🌐 ROUTER / AP"
-        elif 'tv' in v or 'samsung' in v or 'lg' in v or 'roku' in v:
-            return "📺 SMART TV"
-        elif 'printer' in v or 'hp' in v or 'canon' in v or 'epson' in v:
-            return "🖨️ PRINTER"
-        elif 'phone' in v or 'apple' in v or 'android' in v:
-            return "📱 MOBILE / TAB"
-        else:
-            return "🖥️ IOT DEVICE"
-
     def draw_topology(self):
-        """Renders central Gateway node and host device cards in an orbit layout."""
+        """Renders Core Router (Level 1) -> Switches/APs (Level 2) -> Devices (Level 3)."""
         self.scene.clear()
         
         if not self.devices:
-            text = self.scene.addText("No network topology data available. Run a network scan.")
-            text.setDefaultTextColor(QColor("#a6adc8"))
+            text = self.scene.addText("No network topology data available. Please run a multi-subnet scan.")
+            text.setDefaultTextColor(QColor("#94a3b8"))
             text.setFont(QFont("Segoe UI", 12))
-            text.setPos(-180, -10)
+            text.setPos(-200, -10)
             return
 
-        center_x, center_y = 0, 0
+        # ---------------- LEVEL 1: CORE ROUTER ----------------
+        core_x, core_y = 0, -250
+        core_w, core_h = 240, 70
         
-        # Draw Central Gateway Node Card
-        gw_w, gw_h = 190, 110
-        gw_card = self.scene.addRect(
-            center_x - gw_w/2, center_y - gw_h/2, gw_w, gw_h,
-            QPen(QColor("#89b4fa"), 3), QBrush(QColor("#1e1e2e"))
+        core_rect = self.scene.addRect(
+            core_x - core_w/2, core_y - core_h/2, core_w, core_h,
+            QPen(QColor("#38bdf8"), 3), QBrush(QColor("#1e293b"))
         )
         
-        gw_text = self.scene.addText(
-            f"🌐 CENTRAL GATEWAY\n"
-            f"IP: {self.gateway_ip}\n"
-            f"Location: Local Gateway\n"
-            f"AP: Main Router / VLAN 137\n"
-            f"Status: ACTIVE"
-        )
-        gw_text.setDefaultTextColor(QColor("#cdd6f4"))
-        font = QFont("Consolas", 8, QFont.Bold)
-        gw_text.setFont(font)
-        gw_text.setPos(center_x - gw_w/2 + 10, center_y - gw_h/2 + 8)
+        core_txt = self.scene.addText("🏢 ENTERPRISE CORE ROUTER\nSubnets: Multi-VLAN L3 Core")
+        core_txt.setDefaultTextColor(QColor("#f8fafc"))
+        core_txt.setFont(QFont("Consolas", 9, QFont.Bold))
+        core_txt.setPos(core_x - core_w/2 + 10, core_y - core_h/2 + 15)
 
-        # Distribute Host Device Cards around Gateway
-        num_devices = len(self.devices)
-        orbit_radius = max(320, num_devices * 65)
-        
-        card_w, card_h = 200, 120
-        
-        for i, device in enumerate(self.devices):
-            angle = (2 * math.pi / num_devices) * i
-            node_x = center_x + orbit_radius * math.cos(angle)
-            node_y = center_y + orbit_radius * math.sin(angle)
-            
-            # Risk Color Coding
-            risk_label = device.get('risk_label', 'Low')
-            if risk_label == 'High':
-                color_hex = "#f38ba8" # Red
-                bg_color = QColor("#2a1b24")
-            elif risk_label == 'Medium':
-                color_hex = "#fab387" # Orange
-                bg_color = QColor("#2a241b")
-            else:
-                color_hex = "#a6e3a1" # Green
-                bg_color = QColor("#1b2a1e")
+        # Group Devices by Infrastructure Node (Switch / AP)
+        infra_nodes = {}
+        for dev in self.devices:
+            disc = dev.get('discovered', {})
+            sw_name = disc.get('connected_to', 'SW-01')
+            if sw_name not in infra_nodes:
+                infra_nodes[sw_name] = []
+            infra_nodes[sw_name].append(dev)
 
-            border_color = QColor(color_hex)
+        # ---------------- LEVEL 2: SWITCHES / ACCESS POINTS ----------------
+        num_infra = len(infra_nodes)
+        infra_spacing = 380
+        start_infra_x = -((num_infra - 1) * infra_spacing) / 2
+        
+        for idx, (infra_name, dev_list) in enumerate(infra_nodes.items()):
+            infra_x = start_infra_x + idx * infra_spacing
+            infra_y = -50
             
-            # Draw Connection Link to Gateway
+            # Connect Core Router to Switch/AP
             line = self.scene.addLine(
-                center_x, center_y, node_x, node_y,
-                QPen(border_color, 2, Qt.DashLine)
+                core_x, core_y + core_h/2, infra_x, infra_y - 30,
+                QPen(QColor("#38bdf8"), 2, Qt.SolidLine)
             )
             line.setZValue(-1)
             
-            # Device Card Background
-            card_rect = self.scene.addRect(
-                node_x - card_w/2, node_y - card_h/2, card_w, card_h,
-                QPen(border_color, 2), QBrush(bg_color)
+            # Draw Switch / AP Node Box
+            box_w, box_h = 220, 60
+            infra_icon = "📶" if "AP" in infra_name else "🔀"
+            vlan_sample = dev_list[0].get('discovered', {}).get('vlan', '10') if dev_list else '10'
+            
+            self.scene.addRect(
+                infra_x - box_w/2, infra_y - box_h/2, box_w, box_h,
+                QPen(QColor("#818cf8"), 2), QBrush(QColor("#1e1b4b"))
             )
             
-            # Extract Card Data
-            vendor = device.get('vendor') or 'Generic Device'
-            if len(vendor) > 16:
-                vendor = vendor[:14] + '..'
-            ip = device.get('ip', 'Unknown')
-            mac = device.get('mac', 'Unknown')
-            vlan = device.get('vlan', 'VLAN 137')
-            ap_name = device.get('ap_name', 'Hotspot-AP')
-            dev_type = self._get_device_type_info(vendor, device.get('ports', []))
+            sw_txt = self.scene.addText(f"{infra_icon} {infra_name} (VLAN {vlan_sample})\nDevices Attached: {len(dev_list)}")
+            sw_txt.setDefaultTextColor(QColor("#e0e7ff"))
+            sw_txt.setFont(QFont("Consolas", 8, QFont.Bold))
+            sw_txt.setPos(infra_x - box_w/2 + 8, infra_y - box_h/2 + 12)
+
+            # ---------------- LEVEL 3: RICH DEVICE CARDS ----------------
+            num_devs = len(dev_list)
+            dev_spacing = 220
+            start_dev_x = infra_x - ((num_devs - 1) * dev_spacing) / 2
             
-            card_str = (
-                f"┌─────────────────────────┐\n"
-                f"  {dev_type}\n"
-                f"  IP: {ip}\n"
-                f"  Vendor: {vendor}\n"
-                f"  Loc: {ap_name} / {vlan}\n"
-                f"  Risk: {risk_label.upper()}\n"
-                f"└─────────────────────────┘"
-            )
-            
-            txt_item = self.scene.addText(card_str)
-            txt_item.setDefaultTextColor(border_color)
-            card_font = QFont("Consolas", 8, QFont.Bold)
-            txt_item.setFont(card_font)
-            txt_item.setPos(node_x - card_w/2 + 5, node_y - card_h/2 + 5)
+            for dev_idx, dev in enumerate(dev_list):
+                dev_x = start_dev_x + dev_idx * dev_spacing
+                dev_y = infra_y + 180 + (dev_idx % 2) * 30  # Staggered height
+                
+                # Connect Switch/AP to Device Card
+                d_line = self.scene.addLine(
+                    infra_x, infra_y + box_h/2, dev_x, dev_y - 60,
+                    QPen(QColor("#64748b"), 1, Qt.DashLine)
+                )
+                d_line.setZValue(-1)
+                
+                # Risk Color Code
+                r_label = dev.get('risk_label') or dev.get('inferred', {}).get('risk_label', 'Low')
+                if r_label == 'High':
+                    color_hex = "#f87171"
+                    bg_color = QColor("#450a0a")
+                elif r_label == 'Medium':
+                    color_hex = "#fbbf24"
+                    bg_color = QColor("#451a03")
+                else:
+                    color_hex = "#4ade80"
+                    bg_color = QColor("#052e16")
+
+                border_pen = QPen(QColor(color_hex), 2)
+                
+                # Device Card Box
+                card_w, card_h = 205, 125
+                self.scene.addRect(
+                    dev_x - card_w/2, dev_y - card_h/2, card_w, card_h,
+                    border_pen, QBrush(bg_color)
+                )
+                
+                # Extract Data
+                ip = dev.get('ip', '')
+                mac = dev.get('mac', '')
+                vendor = dev.get('vendor', 'Generic')
+                if len(vendor) > 14:
+                    vendor = vendor[:12] + '..'
+                
+                disc = dev.get('discovered', {})
+                vlan = disc.get('vlan', '10')
+                connected_to = disc.get('connected_to', 'SW-01')
+                port_or_ap = disc.get('port_or_ap', 'Port 1')
+                category = dev.get('inferred', {}).get('category', 'IoT Device')
+                
+                card_text = (
+                    f"┌─────────────────────────┐\n"
+                    f"  {category.upper()}\n"
+                    f"  IP: {ip}\n"
+                    f"  MAC: {mac[:14]}..\n"
+                    f"  Vendor: {vendor}\n"
+                    f"  VLAN: {vlan} | {connected_to}\n"
+                    f"  Port: {port_or_ap}\n"
+                    f"  Risk: {r_label.upper()}\n"
+                    f"└─────────────────────────┘"
+                )
+                
+                card_item = self.scene.addText(card_text)
+                card_item.setDefaultTextColor(QColor(color_hex))
+                card_item.setFont(QFont("Consolas", 8, QFont.Bold))
+                card_item.setPos(dev_x - card_w/2 + 4, dev_y - card_h/2 + 4)
 
         self.setSceneRect(self.scene.itemsBoundingRect().adjusted(-80, -80, 80, 80))
