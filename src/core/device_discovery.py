@@ -1,188 +1,197 @@
 """
-Device discovery module for Enterprise IoT Risk Detection System.
-Supports Multi-Subnet scanning, Layer-3 probing, SNMP/Bridge table integration,
-and clear separation of Discovered (Infrastructure) vs Inferred (Heuristic) attributes.
+Single Unified Device Discovery Module for Enterprise IoT Risk Detection System.
+Provides 1 fast, deterministic, clean discovery engine combining Layer-2 ARP Probing,
+OS ARP Cache harvesting, and Multi-Threaded Service Port Scanning.
 """
 import logging
 import requests
 import time
 import socket
+import re
+import subprocess
 import concurrent.futures
-from scapy.all import ARP, Ether, srp, IP, TCP, sr1, ICMP
+from scapy.all import ARP, Ether, srp, IP, TCP, sr1
 
 logger = logging.getLogger(__name__)
 
 class DeviceDiscovery:
-    """Handles multi-subnet network device discovery and infrastructure mapping."""
+    """Single Unified Engine for fast, accurate network device discovery."""
     
     def __init__(self):
-        self.mac_vendor_cache = {}
+        self.mac_vendor_cache = {
+            '00:12:7B': 'CP Plus',
+            '3C:EF:8C': 'CP Plus / Dahua',
+            '4C:11:BF': 'CP Plus / Dahua',
+            '70:8D:09': 'CP Plus / Dahua',
+            'E0:50:8B': 'CP Plus / Dahua',
+            'BC:32:5B': 'CP Plus / Dahua',
+            'A0:BD:CD': 'CP Plus / Dahua',
+            '00:1A:07': 'CP Plus / Dahua'
+        }
 
-    def discover_devices(self, network="192.168.137.0/24"):
-        """Parses single or comma-separated subnets and executes hybrid L2/L3 scans."""
+    def discover_devices(self, network="192.168.137.0/24, 192.168.1.0/24, 192.168.0.0/24"):
+        """Executes 1 Single Unified Engine to capture all physically connected active network devices."""
         subnets = [s.strip() for s in network.split(',') if s.strip()]
-        all_hosts = []
+        hosts_map = {} # IP -> host_dict
         
-        print(f"[DeviceDiscovery] Starting multi-subnet discovery on: {subnets}")
-        logger.info(f"Starting multi-subnet discovery on: {subnets}")
-        
+        print(f"[UnifiedDiscoveryEngine] Starting scan on subnets: {subnets}")
+        logger.info(f"Starting unified scan on subnets: {subnets}")
+
+        # Step 1: Harvest OS ARP Cache (Instant discovery of all active IP/MAC entries)
+        for dev in self._harvest_system_arp_cache():
+            if dev.get('ip') and dev.get('mac') and dev['mac'] != '00:00:00:00:00:00':
+                hosts_map[dev['ip']] = dev
+
+        # Step 2: Layer-2 ARP Sweep across subnets
         for subnet in subnets:
-            hosts = self._scan_single_subnet(subnet)
-            all_hosts.extend(hosts)
-            
-        print(f"[DeviceDiscovery] Multi-subnet scan complete. Total {len(all_hosts)} device(s) found.")
-        return all_hosts
+            self._wake_up_hosts(subnet)
+            for dev in self._scapy_arp_sweep(subnet):
+                ip = dev['ip']
+                mac = dev['mac']
+                if mac and mac != '00:00:00:00:00:00':
+                    if ip in hosts_map:
+                        hosts_map[ip]['mac'] = mac
+                    else:
+                        hosts_map[ip] = dev
 
-    def _scan_single_subnet(self, network):
-        print(f"[DeviceDiscovery] Scanning subnet {network}...")
-        hosts = []
-        
-        # Layer-2 ARP scan
-        arp = ARP(pdst=network)
-        ether = Ether(dst="ff:ff:ff:ff:ff:ff")
-        packet = ether/arp
-        
-        try:
-            result = srp(packet, timeout=0.4, verbose=0)[0]
-            for sent, received in result:
-                ip = received.psrc
-                mac = received.hwsrc
-                vendor = self.lookup_mac_vendor(mac)
-                ports = self._scan_ports(ip)
-                
-                disc_info = self._get_infrastructure_info(ip, mac, network)
-                inferred_info = self._get_inferred_info(vendor, ports)
-                
-                hosts.append({
-                    'ip': ip,
-                    'mac': mac,
-                    'vendor': vendor or 'Unknown',
-                    'ports': ports,
-                    'discovered': disc_info,
-                    'inferred': inferred_info,
-                    # Backward compatibility keys
-                    'vlan': disc_info['vlan'],
-                    'ap_name': disc_info['connected_to'],
-                    'port_or_ap': disc_info['port_or_ap']
-                })
-        except Exception as e:
-            logger.error(f"ARP scan failed on {network}: {e}")
-            # Layer-3 Ping / TCP SYN fallback for routed subnets
-            hosts.extend(self._layer3_fallback_scan(network))
-            
-        return hosts
+        all_hosts = list(hosts_map.values())
 
-    def _layer3_fallback_scan(self, network):
-        # Fallback ping/socket probe for Layer-3 routed subnets across routers
-        print(f"[DeviceDiscovery] L3 Fallback scan on {network}...")
-        found_hosts = []
-        if '/' in network:
-            parts = network.rsplit('.', 1)
-            base_ip = parts[0]
-        else:
-            base_ip = "10.10.10"
-            
-        def check_host(ip_str):
+        # Step 3: Multi-Threaded Service Port Scan, Vendor Lookup & Smart Category Classification
+        def process_host(dev):
+            ip = dev['ip']
+            dev['ports'] = self._scan_ports(ip)
+            if not dev.get('vendor') or dev['vendor'] == 'Generic Device':
+                dev['vendor'] = self.lookup_mac_vendor(dev.get('mac'))
+            category = self._classify_device(dev)
+            dev['inferred'] = {'category': category}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            executor.map(process_host, all_hosts)
+
+        # Filter out gateway IP and invalid MAC entries
+        gateway_ip = subnets[0].rsplit('.', 1)[0] + '.1' if subnets and '.' in subnets[0] else '192.168.137.1'
+        filtered_hosts = [
+            h for h in all_hosts 
+            if h.get('ip') != gateway_ip 
+            and h.get('mac') 
+            and h.get('mac') != '00:00:00:00:00:00'
+        ]
+
+        # Step 4: Build Infrastructure Topology Relationship Graph
+        from src.core.infrastructure_discovery import TopologyBuilder
+        builder = TopologyBuilder()
+        topology_graph = builder.build_topology(filtered_hosts, subnets)
+
+        print(f"[UnifiedDiscoveryEngine] Scan complete. Found {len(filtered_hosts)} verified physical host(s).")
+        return filtered_hosts, topology_graph
+
+    def _wake_up_hosts(self, network):
+        """Fast socket sweep to wake up sleeping network devices."""
+        base_ip = network.rsplit('.', 1)[0] if '/' in network else "192.168.137"
+        target_ips = [f"{base_ip}.{i}" for i in range(1, 255)]
+        
+        def ping_ip(ip_str):
             try:
-                pkt = IP(dst=ip_str)/ICMP()
-                resp = sr1(pkt, timeout=0.2, verbose=0)
-                if resp:
-                    ports = self._scan_ports(ip_str)
-                    disc_info = self._get_infrastructure_info(ip_str, "00:50:56:FE:8B:12", network)
-                    inferred_info = self._get_inferred_info("Routed Device", ports)
-                    return {
-                        'ip': ip_str,
-                        'mac': "00:50:56:FE:8B:12",
-                        'vendor': "Enterprise Node",
-                        'ports': ports,
-                        'discovered': disc_info,
-                        'inferred': inferred_info,
-                        'vlan': disc_info['vlan'],
-                        'ap_name': disc_info['connected_to'],
-                        'port_or_ap': disc_info['port_or_ap']
-                    }
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(0.08)
+                sock.connect((ip_str, 80))
+                sock.close()
             except Exception:
                 pass
-            return None
+                
+        with concurrent.futures.ThreadPoolExecutor(max_workers=60) as executor:
+            executor.map(ping_ip, target_ips)
 
-        target_ips = [f"{base_ip}.{i}" for i in range(1, 254)]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=30) as executor:
-            results = executor.map(check_host, target_ips)
-            for res in results:
-                if res:
-                    found_hosts.append(res)
-        return found_hosts
+    def _harvest_system_arp_cache(self):
+        """Parses system ARP cache ('arp -a') across all subnets."""
+        hosts = []
+        try:
+            output = subprocess.check_output("arp -a", shell=True).decode("utf-8", errors="ignore")
+            pattern = re.compile(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-fa-f]{2}[-:][0-9a-fa-f]{2}[-:][0-9a-fa-f]{2}[-:][0-9a-fa-f]{2}[-:][0-9a-fa-f]{2}[-:][0-9a-fa-f]{2})')
+            for line in output.splitlines():
+                if 'dynamic' in line.lower() or 'static' in line.lower():
+                    match = pattern.search(line)
+                    if match:
+                        ip = match.group(1).strip()
+                        mac = match.group(2).strip().replace('-', ':').upper()
+                        if not ip.startswith("127.") and not mac.startswith("FF:") and not mac.startswith("01:00:5E"):
+                            hosts.append({'ip': ip, 'mac': mac, 'vendor': self.lookup_mac_vendor(mac), 'ports': []})
+        except Exception as e:
+            logger.warning(f"ARP harvest failed: {e}")
+        return hosts
 
-    def _get_infrastructure_info(self, ip, mac, network):
-        """Extracts or correlates deterministic infrastructure data (VLAN, Switch, Port/AP)."""
-        subnet_num = ip.split('.')[2] if '.' in ip else '10'
-        vlan = str(subnet_num)
-        
-        # Correlate Switch / AP topology
-        if ip.endswith('.1') or ip.endswith('.254'):
-            connected_to = "Core-Router"
-            port_or_ap = "Uplink-Trunk"
-        elif int(ip.split('.')[-1]) % 2 == 0:
-            connected_to = f"SW-01"
-            port_or_ap = f"Port {int(ip.split('.')[-1]) % 24 + 1}"
-        else:
-            connected_to = f"AP-{int(vlan):02d}"
-            port_or_ap = "Wi-Fi (802.11ax)"
-
-        return {
-            'vlan': vlan,
-            'connected_to': connected_to,
-            'port_or_ap': port_or_ap,
-            'subnet': network
-        }
-
-    def _get_inferred_info(self, vendor, ports):
-        """Calculates heuristic inferred attributes (Category, Device Type)."""
-        v = (vendor or '').lower()
-        port_list = [p['port'] for p in ports] if isinstance(ports, list) else []
-        
-        if 554 in port_list or 'hikvision' in v or 'dahua' in v or 'cam' in v:
-            category = "IP Camera"
-        elif 'router' in v or 'cisco' in v or 'tp-link' in v or 'gateway' in v:
-            category = "Router / Switch"
-        elif 'tv' in v or 'samsung' in v or 'lg' in v or 'roku' in v:
-            category = "Smart TV"
-        elif 'printer' in v or 'hp' in v or 'canon' in v or 'epson' in v:
-            category = "Printer"
-        elif 'apple' in v or 'android' in v or 'phone' in v:
-            category = "Smartphone"
-        else:
-            category = "IoT / Workstation"
-            
-        return {
-            'category': category
-        }
+    def _scapy_arp_sweep(self, network):
+        """Scapy Layer-2 ARP Sweep."""
+        hosts = []
+        try:
+            arp_pkt = Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=network)
+            result = srp(arp_pkt, timeout=0.4, retry=1, verbose=0)[0]
+            for sent, received in result:
+                ip = received.psrc
+                mac = received.hwsrc.upper()
+                if mac and mac != '00:00:00:00:00:00':
+                    hosts.append({'ip': ip, 'mac': mac, 'vendor': self.lookup_mac_vendor(mac), 'ports': []})
+        except Exception as e:
+            logger.warning(f"Scapy ARP sweep error: {e}")
+        return hosts
 
     def lookup_mac_vendor(self, mac):
-        if not mac or mac.startswith("00:00:00"):
+        """Looks up hardware MAC vendor OUI."""
+        if not mac or mac.startswith("00:00:00") or mac.startswith("FF:"):
             return "Generic Device"
-        if mac in self.mac_vendor_cache:
-            return self.mac_vendor_cache[mac]
+        prefix = mac.upper()[:8]
+        if prefix in self.mac_vendor_cache:
+            return self.mac_vendor_cache[prefix]
         try:
-            url = f"https://api.macvendors.com/{mac}"
-            resp = requests.get(url, timeout=3)
+            resp = requests.get(f"https://api.macvendors.com/{mac}", timeout=1.2)
             if resp.status_code == 200:
                 vendor = resp.text.strip()
-                self.mac_vendor_cache[mac] = vendor
+                self.mac_vendor_cache[prefix] = vendor
                 return vendor
         except Exception:
             pass
         return "Generic Device"
 
-    def _scan_ports(self, ip, ports=[22, 23, 80, 443, 8080, 8443, 53, 554, 139, 445, 3389, 5000, 8888]):
+    def _scan_ports(self, ip, ports=[80, 443, 554, 8000, 25001, 37777, 37810, 34567, 8899, 22, 139, 445, 3389]):
+        """Fast multi-threaded TCP port scan."""
         open_ports = []
-        for port in ports:
+        def check(p):
             try:
-                pkt = IP(dst=ip)/TCP(dport=port, flags='S')
-                resp = sr1(pkt, timeout=0.2, verbose=0)
+                pkt = IP(dst=ip)/TCP(dport=p, flags='S')
+                resp = sr1(pkt, timeout=0.1, verbose=0)
                 if resp and resp.haslayer(TCP) and resp[TCP].flags == 0x12:
-                    open_ports.append({'port': port, 'state': 'open'})
-                    sr1(IP(dst=ip)/TCP(dport=port, flags='R'), timeout=0.1, verbose=0)
+                    sr1(IP(dst=ip)/TCP(dport=p, flags='R'), timeout=0.05, verbose=0)
+                    return {'port': p, 'state': 'open'}
             except Exception:
                 pass
+            return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(ports)) as executor:
+            results = executor.map(check, ports)
+            for r in results:
+                if r: open_ports.append(r)
         return open_ports
+
+    def _classify_device(self, device):
+        """Determines device category cleanly."""
+        ports = [p['port'] for p in device.get('ports', [])] if isinstance(device.get('ports'), list) else []
+        vendor = (device.get('vendor') or '').lower()
+
+        cctv_ports = {554, 8000, 25001, 37777, 37810, 34567, 8899}
+        cctv_vendors = ['cp plus', 'cpplus', 'dahua', 'hikvision', 'axis', 'reolink', 'amcrest', 'indivision', 'uniview', 'xiongmai', 'ezviz', 'imou']
+        if any(p in cctv_ports for p in ports) or any(k in vendor for k in cctv_vendors):
+            return "IP Camera"
+
+        if any(v in vendor for v in ['apple', 'samsung', 'xiaomi', 'huawei', 'oneplus', 'oppo', 'vivo', 'realme', 'google', 'lg electronics', 'motorola']):
+            return "Smartphone"
+
+        if any(v in vendor for v in ['roku', 'sony', 'lg electronics', 'vizio', 'toshiba', 'tcl']):
+            return "Smart TV"
+
+        if 9100 in ports or 631 in ports or any(v in vendor for v in ['hp', 'epson', 'canon', 'brother', 'xerox', 'lexmark']):
+            return "Printer"
+
+        if 3389 in ports or 445 in ports or 139 in ports or 22 in ports:
+            return "Workstation / PC"
+
+        return "IoT Device"
